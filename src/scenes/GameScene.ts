@@ -149,8 +149,8 @@ export default class GameScene extends Phaser.Scene {
 			this.tiltInstructionText.setOrigin(0.5);
 			this.tiltInstructionText.setDepth(10);
 
-			// Request device orientation permission
-			if (typeof DeviceOrientationEvent !== "undefined" && typeof (DeviceOrientationEvent as any).requestPermission === "function") {
+			// Request device orientation permission with better error handling
+			if (typeof DeviceOrientationEvent !== "undefined") {
 				const button = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2 + 50, "Enable Tilt Controls", {
 					fontSize: "20px",
 					color: "#fff",
@@ -160,22 +160,40 @@ export default class GameScene extends Phaser.Scene {
 				});
 				button.setOrigin(0.5);
 				button.setInteractive();
+
 				button.on("pointerdown", async () => {
+					console.log("Tilt control button clicked");
 					try {
-						const permission = await (DeviceOrientationEvent as any).requestPermission();
-						if (permission === "granted") {
+						// Check if we need to request permission
+						if (typeof (DeviceOrientationEvent as any).requestPermission === "function") {
+							console.log("Requesting device orientation permission...");
+							const permission = await (DeviceOrientationEvent as any).requestPermission();
+							console.log("Permission result:", permission);
+
+							if (permission === "granted") {
+								console.log("Permission granted, setting up tilt controls");
+								this.setupTiltControls();
+								button.destroy();
+								this.tiltInstructionText.destroy();
+							} else {
+								console.log("Permission denied");
+								this.tiltInstructionText.setText("Tilt controls not available");
+							}
+						} else {
+							// For devices that don't need permission
+							console.log("No permission needed, setting up tilt controls directly");
 							this.setupTiltControls();
 							button.destroy();
 							this.tiltInstructionText.destroy();
 						}
 					} catch (error) {
-						console.error("Error requesting device orientation permission:", error);
+						console.error("Error with tilt controls:", error);
+						this.tiltInstructionText.setText("Error enabling tilt controls");
 					}
 				});
 			} else {
-				// For devices that don't need permission
-				this.setupTiltControls();
-				this.tiltInstructionText.destroy();
+				console.log("DeviceOrientationEvent not supported");
+				this.tiltInstructionText.setText("Tilt controls not supported");
 			}
 		}
 
@@ -367,32 +385,58 @@ export default class GameScene extends Phaser.Scene {
 
 	private setupTiltControls() {
 		if (this.isMobile) {
-			window.addEventListener("deviceorientation", this.handleDeviceOrientation.bind(this), true);
+			// Remove any existing listeners first
+			window.removeEventListener("deviceorientation", this.handleDeviceOrientation.bind(this));
+
+			// Add new listener with error handling
+			try {
+				window.addEventListener(
+					"deviceorientation",
+					event => {
+						console.log("Device orientation event received:", event);
+						this.handleDeviceOrientation(event);
+					},
+					true,
+				);
+				console.log("Tilt controls enabled successfully");
+			} catch (error) {
+				console.error("Error setting up tilt controls:", error);
+			}
 		}
 	}
 
 	private handleDeviceOrientation(event: DeviceOrientationEvent) {
-		if (!event.beta) return;
+		console.log("Handling orientation:", {
+			beta: event.beta,
+			gamma: event.gamma,
+			alpha: event.alpha,
+		});
 
-		// Adjust sensitivity and deadzone for better control
-		const deadzone = 5; // Ignore small movements
-		const sensitivity = 0.3; // Reduce sensitivity for smoother control
-		const maxTilt = 45; // Maximum tilt angle
-
-		// Get the tilt angle and apply deadzone
-		let tilt = event.beta;
-		if (Math.abs(tilt) < deadzone) {
-			tilt = 0;
-		} else {
-			// Adjust for deadzone
-			tilt = tilt > 0 ? tilt - deadzone : tilt + deadzone;
+		// Check if we have valid orientation data
+		if (event.beta === null || event.gamma === null) {
+			console.log("No valid orientation data available");
+			return;
 		}
 
-		// Normalize and apply sensitivity
-		const normalizedTilt = Phaser.Math.Clamp(tilt * sensitivity, -maxTilt, maxTilt);
-		const moveSpeed = (normalizedTilt / maxTilt) * this.PLATE_SPEED;
+		// Use gamma for left/right tilt (more natural for mobile games)
+		const tilt = event.gamma;
+		console.log("Raw tilt value:", tilt);
 
-		// Apply movement with smoothing
+		// Adjust sensitivity and deadzone for better control
+		const deadzone = 5;
+		const sensitivity = 0.5; // Increased sensitivity
+		const maxTilt = 30; // Reduced max tilt for better control
+
+		// Apply deadzone
+		let adjustedTilt = Math.abs(tilt) < deadzone ? 0 : tilt;
+		console.log("Adjusted tilt after deadzone:", adjustedTilt);
+
+		// Normalize and apply sensitivity
+		const normalizedTilt = Phaser.Math.Clamp(adjustedTilt * sensitivity, -maxTilt, maxTilt);
+		const moveSpeed = (normalizedTilt / maxTilt) * this.PLATE_SPEED;
+		console.log("Final move speed:", moveSpeed);
+
+		// Apply movement
 		this.plate.setVelocityX(moveSpeed);
 	}
 }
