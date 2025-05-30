@@ -14,6 +14,12 @@ export default class GameScene extends Phaser.Scene {
 	private difficulty: number = 1;
 	private isGameOver: boolean = false;
 	private isPaused: boolean = false;
+	private fallingIngredients: Phaser.Physics.Arcade.Sprite[] = [];
+	private isDragging: boolean = false;
+	private dragStartX: number = 0;
+	private dragStartY: number = 0;
+	private currentX: number = 0;
+	private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
 
 	// Game configuration
 	private readonly PLATE_SPEED = 500;
@@ -100,27 +106,16 @@ export default class GameScene extends Phaser.Scene {
 			this,
 		);
 
-		// Set up input
-		if (!this.isMobile) {
-			this.input.keyboard?.on("keydown-LEFT", () => {
-				this.plate.setVelocityX(-this.PLATE_SPEED);
-			});
-			this.input.keyboard?.on("keydown-RIGHT", () => {
-				this.plate.setVelocityX(this.PLATE_SPEED);
-			});
-			this.input.keyboard?.on("keyup-LEFT", () => {
-				if (!this.input.keyboard?.addKey("RIGHT").isDown) {
-					this.plate.setVelocityX(0);
-				}
-			});
-			this.input.keyboard?.on("keyup-RIGHT", () => {
-				if (!this.input.keyboard?.addKey("LEFT").isDown) {
-					this.plate.setVelocityX(0);
-				}
-			});
+		// Add touch/mouse input handlers
+		if (this.isMobile) {
+			this.input.on("pointerdown", this.handlePointerDown, this);
+			this.input.on("pointermove", this.handlePointerMove, this);
+			this.input.on("pointerup", this.handlePointerUp, this);
 		} else {
-			// Set up device orientation for mobile
-			window.addEventListener("deviceorientation", this.handleDeviceOrientation.bind(this));
+			// Keep existing keyboard controls for desktop
+			if (this.input.keyboard) {
+				this.cursors = this.input.keyboard.createCursorKeys();
+			}
 		}
 
 		// Set up score text
@@ -158,6 +153,17 @@ export default class GameScene extends Phaser.Scene {
 				});
 			}
 			return;
+		}
+
+		if (!this.isMobile) {
+			// Existing keyboard controls for desktop
+			if (this.cursors.left?.isDown) {
+				this.plate.setVelocityX(-300);
+			} else if (this.cursors.right?.isDown) {
+				this.plate.setVelocityX(300);
+			} else {
+				this.plate.setVelocityX(0);
+			}
 		}
 
 		this.currentBurger.forEach((ingredient, index) => {
@@ -294,14 +300,23 @@ export default class GameScene extends Phaser.Scene {
 		});
 	}
 
-	private handleDeviceOrientation(event: DeviceOrientationEvent) {
-		if (!event.beta) return;
+	private handlePointerDown(pointer: Phaser.Input.Pointer) {
+		this.isDragging = true;
+		this.dragStartX = pointer.x;
+		this.dragStartY = pointer.y;
+		this.currentX = this.plate.x;
+	}
 
-		const tilt = event.beta * 0.5;
-		const maxTilt = 45;
-		const normalizedTilt = Phaser.Math.Clamp(tilt, -maxTilt, maxTilt);
-		const moveSpeed = (normalizedTilt / maxTilt) * this.PLATE_SPEED;
+	private handlePointerMove(pointer: Phaser.Input.Pointer) {
+		if (!this.isDragging) return;
 
-		this.plate.setVelocityX(moveSpeed);
+		const deltaX = pointer.x - this.dragStartX;
+		this.currentX = Phaser.Math.Clamp(this.currentX + deltaX, this.plate.width / 2, this.cameras.main.width - this.plate.width / 2);
+		this.plate.x = this.currentX;
+		this.dragStartX = pointer.x;
+	}
+
+	private handlePointerUp() {
+		this.isDragging = false;
 	}
 }
