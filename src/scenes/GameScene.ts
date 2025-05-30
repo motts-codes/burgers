@@ -8,6 +8,7 @@ export default class GameScene extends Phaser.Scene {
 	private scoreText!: Phaser.GameObjects.Text;
 	private burgerCountText!: Phaser.GameObjects.Text;
 	private isMobile: boolean;
+	private isIOS: boolean;
 	private isPortrait: boolean;
 	private tiltInstructionText!: Phaser.GameObjects.Text;
 	private lastSpawnTime: number = 0;
@@ -48,6 +49,7 @@ export default class GameScene extends Phaser.Scene {
 	constructor() {
 		super({ key: "GameScene" });
 		this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+		this.isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 		this.isPortrait = window.innerHeight > window.innerWidth;
 	}
 
@@ -139,7 +141,9 @@ export default class GameScene extends Phaser.Scene {
 
 		// Add tilt instruction for mobile portrait mode
 		if (this.isMobile && this.isPortrait) {
-			this.tiltInstructionText = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2, "Tilt your device to play!", {
+			const instructionText = this.isIOS ? "For iOS: Open in Safari and allow motion access" : "Tilt your device to play!";
+
+			this.tiltInstructionText = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2 - 30, instructionText, {
 				fontSize: "24px",
 				color: "#000",
 				backgroundColor: "#fff",
@@ -149,9 +153,22 @@ export default class GameScene extends Phaser.Scene {
 			this.tiltInstructionText.setOrigin(0.5);
 			this.tiltInstructionText.setDepth(10);
 
-			// Request device orientation permission with better error handling
+			// Add iOS-specific instructions
+			if (this.isIOS) {
+				const iosInstructions = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2 + 20, "1. Open in Safari\n2. Add to Home Screen\n3. Launch from Home Screen", {
+					fontSize: "18px",
+					color: "#000",
+					backgroundColor: "#fff",
+					padding: { x: 10, y: 5 },
+					align: "center",
+				});
+				iosInstructions.setOrigin(0.5);
+				iosInstructions.setDepth(10);
+			}
+
+			// Request device orientation permission
 			if (typeof DeviceOrientationEvent !== "undefined") {
-				const button = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2 + 50, "Enable Tilt Controls", {
+				const button = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2 + (this.isIOS ? 100 : 50), this.isIOS ? "Enable Motion Access" : "Enable Tilt Controls", {
 					fontSize: "20px",
 					color: "#fff",
 					backgroundColor: "#4CAF50",
@@ -163,35 +180,37 @@ export default class GameScene extends Phaser.Scene {
 
 				button.on("pointerdown", async () => {
 					console.log("Tilt control button clicked");
-					try {
-						// Check if we need to request permission
-						if (typeof (DeviceOrientationEvent as any).requestPermission === "function") {
-							console.log("Requesting device orientation permission...");
-							try {
-								const permission = await (DeviceOrientationEvent as any).requestPermission();
-								console.log("Permission result:", permission);
 
-								if (permission === "granted") {
-									console.log("Permission granted, setting up tilt controls");
-									this.setupTiltControls();
-									button.destroy();
-									this.tiltInstructionText.destroy();
-								} else {
-									console.log("Permission denied");
-									this.tiltInstructionText.setText("Permission denied - using touch controls");
-									this.fallbackToTouchControls();
-								}
-							} catch (permissionError) {
-								console.error("Permission error:", permissionError);
-								this.tiltInstructionText.setText("Could not get permission - using touch controls");
-								this.fallbackToTouchControls();
-							}
-						} else {
-							// For devices that don't need permission
-							console.log("No permission needed, setting up tilt controls directly");
+					// For iOS, check if we're in Safari
+					if (this.isIOS && !/^((?!chrome|android).)*safari/i.test(navigator.userAgent)) {
+						this.tiltInstructionText.setText("Please open in Safari browser");
+						return;
+					}
+
+					try {
+						const hasPermission = await this.requestIOSPermission();
+
+						if (hasPermission) {
+							console.log("Permission granted, setting up tilt controls");
 							this.setupTiltControls();
 							button.destroy();
 							this.tiltInstructionText.destroy();
+
+							if (this.isIOS) {
+								const iosTip = this.add.text(this.cameras.main.width / 2, 50, "Tip: For best experience, add to Home Screen", {
+									fontSize: "16px",
+									color: "#000",
+									backgroundColor: "#fff",
+									padding: { x: 10, y: 5 },
+									align: "center",
+								});
+								iosTip.setOrigin(0.5);
+								iosTip.setDepth(10);
+							}
+						} else {
+							console.log("Permission denied or not available");
+							this.tiltInstructionText.setText(this.isIOS ? "Motion access denied - using touch controls" : "Tilt controls not available - using touch controls");
+							this.fallbackToTouchControls();
 						}
 					} catch (error) {
 						console.error("Error with tilt controls:", error);
@@ -205,7 +224,6 @@ export default class GameScene extends Phaser.Scene {
 				this.fallbackToTouchControls();
 			}
 		} else if (this.isMobile) {
-			// For mobile devices in landscape mode, use touch controls directly
 			this.fallbackToTouchControls();
 		}
 
@@ -473,5 +491,23 @@ export default class GameScene extends Phaser.Scene {
 
 		// Apply movement
 		this.plate.setVelocityX(moveSpeed);
+	}
+
+	private async requestIOSPermission(): Promise<boolean> {
+		if (!this.isIOS) return true;
+
+		if (typeof (DeviceOrientationEvent as any).requestPermission !== "function") {
+			console.log("DeviceOrientationEvent.requestPermission not available");
+			return false;
+		}
+
+		try {
+			const permission = await (DeviceOrientationEvent as any).requestPermission();
+			console.log("iOS permission result:", permission);
+			return permission === "granted";
+		} catch (error) {
+			console.error("iOS permission error:", error);
+			return false;
+		}
 	}
 }
