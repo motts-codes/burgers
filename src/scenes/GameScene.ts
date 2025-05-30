@@ -167,17 +167,24 @@ export default class GameScene extends Phaser.Scene {
 						// Check if we need to request permission
 						if (typeof (DeviceOrientationEvent as any).requestPermission === "function") {
 							console.log("Requesting device orientation permission...");
-							const permission = await (DeviceOrientationEvent as any).requestPermission();
-							console.log("Permission result:", permission);
+							try {
+								const permission = await (DeviceOrientationEvent as any).requestPermission();
+								console.log("Permission result:", permission);
 
-							if (permission === "granted") {
-								console.log("Permission granted, setting up tilt controls");
-								this.setupTiltControls();
-								button.destroy();
-								this.tiltInstructionText.destroy();
-							} else {
-								console.log("Permission denied");
-								this.tiltInstructionText.setText("Tilt controls not available");
+								if (permission === "granted") {
+									console.log("Permission granted, setting up tilt controls");
+									this.setupTiltControls();
+									button.destroy();
+									this.tiltInstructionText.destroy();
+								} else {
+									console.log("Permission denied");
+									this.tiltInstructionText.setText("Permission denied - using touch controls");
+									this.fallbackToTouchControls();
+								}
+							} catch (permissionError) {
+								console.error("Permission error:", permissionError);
+								this.tiltInstructionText.setText("Could not get permission - using touch controls");
+								this.fallbackToTouchControls();
 							}
 						} else {
 							// For devices that don't need permission
@@ -188,13 +195,18 @@ export default class GameScene extends Phaser.Scene {
 						}
 					} catch (error) {
 						console.error("Error with tilt controls:", error);
-						this.tiltInstructionText.setText("Error enabling tilt controls");
+						this.tiltInstructionText.setText("Switching to touch controls");
+						this.fallbackToTouchControls();
 					}
 				});
 			} else {
 				console.log("DeviceOrientationEvent not supported");
-				this.tiltInstructionText.setText("Tilt controls not supported");
+				this.tiltInstructionText.setText("Using touch controls");
+				this.fallbackToTouchControls();
 			}
+		} else if (this.isMobile) {
+			// For mobile devices in landscape mode, use touch controls directly
+			this.fallbackToTouchControls();
 		}
 
 		// Start spawning ingredients
@@ -388,21 +400,44 @@ export default class GameScene extends Phaser.Scene {
 			// Remove any existing listeners first
 			window.removeEventListener("deviceorientation", this.handleDeviceOrientation.bind(this));
 
+			// Check if device orientation is supported
+			if (!window.DeviceOrientationEvent) {
+				console.log("Device orientation not supported");
+				this.fallbackToTouchControls();
+				return;
+			}
+
 			// Add new listener with error handling
 			try {
-				window.addEventListener(
-					"deviceorientation",
-					event => {
-						console.log("Device orientation event received:", event);
-						this.handleDeviceOrientation(event);
-					},
-					true,
-				);
+				const orientationHandler = (event: DeviceOrientationEvent) => {
+					if (!event) {
+						console.log("No orientation event received");
+						this.fallbackToTouchControls();
+						return;
+					}
+					this.handleDeviceOrientation(event);
+				};
+
+				window.addEventListener("deviceorientation", orientationHandler, true);
 				console.log("Tilt controls enabled successfully");
 			} catch (error) {
 				console.error("Error setting up tilt controls:", error);
+				this.fallbackToTouchControls();
 			}
 		}
+	}
+
+	private fallbackToTouchControls() {
+		console.log("Falling back to touch controls");
+		if (this.tiltInstructionText) {
+			this.tiltInstructionText.setText("Using touch controls instead");
+			this.tiltInstructionText.setStyle({ backgroundColor: "#ffeb3b" });
+		}
+
+		// Set up touch controls
+		this.input.on("pointerdown", this.handlePointerDown, this);
+		this.input.on("pointermove", this.handlePointerMove, this);
+		this.input.on("pointerup", this.handlePointerUp, this);
 	}
 
 	private handleDeviceOrientation(event: DeviceOrientationEvent) {
