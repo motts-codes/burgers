@@ -8,6 +8,8 @@ export default class GameScene extends Phaser.Scene {
 	private scoreText!: Phaser.GameObjects.Text;
 	private burgerCountText!: Phaser.GameObjects.Text;
 	private isMobile: boolean;
+	private isPortrait: boolean;
+	private tiltInstructionText!: Phaser.GameObjects.Text;
 	private lastSpawnTime: number = 0;
 	private activeIngredients: number = 0;
 	private currentBurger: Array<{ type: string; sprite: Phaser.Physics.Arcade.Sprite; points: number }> = [];
@@ -46,6 +48,7 @@ export default class GameScene extends Phaser.Scene {
 	constructor() {
 		super({ key: "GameScene" });
 		this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+		this.isPortrait = window.innerHeight > window.innerWidth;
 	}
 
 	preload() {
@@ -133,6 +136,48 @@ export default class GameScene extends Phaser.Scene {
 			backgroundColor: "#fff",
 			padding: { x: 10, y: 5 },
 		});
+
+		// Add tilt instruction for mobile portrait mode
+		if (this.isMobile && this.isPortrait) {
+			this.tiltInstructionText = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2, "Tilt your device to play!", {
+				fontSize: "24px",
+				color: "#000",
+				backgroundColor: "#fff",
+				padding: { x: 10, y: 5 },
+				align: "center",
+			});
+			this.tiltInstructionText.setOrigin(0.5);
+			this.tiltInstructionText.setDepth(10);
+
+			// Request device orientation permission
+			if (typeof DeviceOrientationEvent !== "undefined" && typeof (DeviceOrientationEvent as any).requestPermission === "function") {
+				const button = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2 + 50, "Enable Tilt Controls", {
+					fontSize: "20px",
+					color: "#fff",
+					backgroundColor: "#4CAF50",
+					padding: { x: 15, y: 10 },
+					align: "center",
+				});
+				button.setOrigin(0.5);
+				button.setInteractive();
+				button.on("pointerdown", async () => {
+					try {
+						const permission = await (DeviceOrientationEvent as any).requestPermission();
+						if (permission === "granted") {
+							this.setupTiltControls();
+							button.destroy();
+							this.tiltInstructionText.destroy();
+						}
+					} catch (error) {
+						console.error("Error requesting device orientation permission:", error);
+					}
+				});
+			} else {
+				// For devices that don't need permission
+				this.setupTiltControls();
+				this.tiltInstructionText.destroy();
+			}
+		}
 
 		// Start spawning ingredients
 		this.time.addEvent({
@@ -318,5 +363,36 @@ export default class GameScene extends Phaser.Scene {
 
 	private handlePointerUp() {
 		this.isDragging = false;
+	}
+
+	private setupTiltControls() {
+		if (this.isMobile) {
+			window.addEventListener("deviceorientation", this.handleDeviceOrientation.bind(this), true);
+		}
+	}
+
+	private handleDeviceOrientation(event: DeviceOrientationEvent) {
+		if (!event.beta) return;
+
+		// Adjust sensitivity and deadzone for better control
+		const deadzone = 5; // Ignore small movements
+		const sensitivity = 0.3; // Reduce sensitivity for smoother control
+		const maxTilt = 45; // Maximum tilt angle
+
+		// Get the tilt angle and apply deadzone
+		let tilt = event.beta;
+		if (Math.abs(tilt) < deadzone) {
+			tilt = 0;
+		} else {
+			// Adjust for deadzone
+			tilt = tilt > 0 ? tilt - deadzone : tilt + deadzone;
+		}
+
+		// Normalize and apply sensitivity
+		const normalizedTilt = Phaser.Math.Clamp(tilt * sensitivity, -maxTilt, maxTilt);
+		const moveSpeed = (normalizedTilt / maxTilt) * this.PLATE_SPEED;
+
+		// Apply movement with smoothing
+		this.plate.setVelocityX(moveSpeed);
 	}
 }
